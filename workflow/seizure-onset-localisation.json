@@ -1,0 +1,273 @@
+{
+  "name": "Seizure Onset Localisation (iEEG)",
+  "summary": "SEEG seizures: DynaSD onset, Epileptogenicity Index, neural fragility, consensus zone, report.",
+  "description": "Localises the seizure onset zone in intracranial EEG (SEEG/ECoG) seizure recordings. Prepares the recordings (bipolar montage, notch, bad channels; BIDS-iEEG, EDF, BrainVision or MEF3), detects the seizure onset and the channels that start it with DynaSD (Ojemann et al. 2026), computes the Epileptogenicity Index (Bartolomei et al. 2008) and neural fragility (Li et al. 2021) around that onset, fuses the three channel rankings into a consensus onset zone, scores every method against expert labels when they are provided, and writes an HTML report. Research use only.",
+  "inputs": [
+    {
+      "id": "ieeg",
+      "name": "iEEG recordings",
+      "description": "Intracranial EEG (SEEG/ECoG): a BIDS-iEEG dataset or EDF, BrainVision, FIF or MEF3 recordings, plus an optional labels.csv (SOZ, resected, expert onset channels and times).",
+      "position": {
+        "x": 40,
+        "y": 300
+      }
+    }
+  ],
+  "processors": [
+    {
+      "id": "prep",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-ieeg-prep",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "ieeg"
+      ],
+      "position": {
+        "x": 300,
+        "y": 300
+      },
+      "cpu": "2048",
+      "memory": "4096"
+    },
+    {
+      "id": "dynasd",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-seizure-dynasd",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "prep"
+      ],
+      "position": {
+        "x": 560,
+        "y": 300
+      },
+      "cpu": "4096",
+      "memory": "8192",
+      "inputs": [
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        }
+      ]
+    },
+    {
+      "id": "ei",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-seizure-ei",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "prep",
+        "dynasd"
+      ],
+      "position": {
+        "x": 820,
+        "y": 170
+      },
+      "cpu": "1024",
+      "memory": "2048",
+      "inputs": [
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        },
+        {
+          "from": "dynasd",
+          "output": "onsets",
+          "input": "onsets"
+        }
+      ]
+    },
+    {
+      "id": "fragility",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-seizure-fragility",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "prep",
+        "dynasd"
+      ],
+      "position": {
+        "x": 820,
+        "y": 430
+      },
+      "cpu": "4096",
+      "memory": "4096",
+      "inputs": [
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        },
+        {
+          "from": "dynasd",
+          "output": "onsets",
+          "input": "onsets"
+        }
+      ]
+    },
+    {
+      "id": "consensus",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-seizure-consensus",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "prep",
+        "dynasd",
+        "ei",
+        "fragility"
+      ],
+      "position": {
+        "x": 1080,
+        "y": 300
+      },
+      "cpu": "1024",
+      "memory": "2048",
+      "inputs": [
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        },
+        {
+          "from": "dynasd",
+          "output": "onsets",
+          "input": "methods"
+        },
+        {
+          "from": "ei",
+          "output": "ei",
+          "input": "methods"
+        },
+        {
+          "from": "fragility",
+          "output": "fragility",
+          "input": "methods"
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-ieeg-report",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "prep",
+        "dynasd",
+        "ei",
+        "fragility",
+        "consensus"
+      ],
+      "position": {
+        "x": 1340,
+        "y": 300
+      },
+      "cpu": "1024",
+      "memory": "1024",
+      "inputs": [
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        },
+        {
+          "from": "prep",
+          "output": "qc",
+          "input": "qc"
+        },
+        {
+          "from": "dynasd",
+          "output": "onsets",
+          "input": "methods"
+        },
+        {
+          "from": "ei",
+          "output": "ei",
+          "input": "methods"
+        },
+        {
+          "from": "fragility",
+          "output": "fragility",
+          "input": "methods"
+        },
+        {
+          "from": "consensus",
+          "output": "onset-zone",
+          "input": "onset-zone"
+        }
+      ],
+      "defaultParams": {
+        "REPORT_TITLE": "Seizure Onset Localisation"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "id": "report_out",
+      "name": "Report",
+      "from": {
+        "step": "report",
+        "output": "report"
+      },
+      "position": {
+        "x": 1600,
+        "y": 170
+      },
+      "default": {
+        "targetType": "Pennsieve Dataset",
+        "params": {
+          "TARGET_FOLDER": "derivatives/seizure-onset/report"
+        }
+      }
+    },
+    {
+      "id": "tables_out",
+      "name": "Tables",
+      "from": {
+        "step": "report",
+        "output": "tables"
+      },
+      "position": {
+        "x": 1600,
+        "y": 300
+      },
+      "default": {
+        "targetType": "Pennsieve Dataset",
+        "params": {
+          "TARGET_FOLDER": "derivatives/seizure-onset/tables"
+        }
+      }
+    },
+    {
+      "id": "zone_out",
+      "name": "Onset zone",
+      "from": {
+        "step": "consensus",
+        "output": "onset-zone"
+      },
+      "position": {
+        "x": 1600,
+        "y": 430
+      },
+      "default": {
+        "targetType": "Pennsieve Dataset",
+        "params": {
+          "TARGET_FOLDER": "derivatives/seizure-onset/onset-zone"
+        }
+      }
+    },
+    {
+      "id": "ieeg_out",
+      "name": "Prepared iEEG",
+      "from": {
+        "step": "prep",
+        "output": "ieeg"
+      },
+      "position": {
+        "x": 1600,
+        "y": 560
+      }
+    }
+  ]
+}
