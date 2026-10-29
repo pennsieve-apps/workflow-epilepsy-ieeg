@@ -141,10 +141,57 @@ def seizure_onset():
     }
 
 
+REFERENCE_INPUT = {
+    "id": "reference",
+    "name": "Normative reference",
+    "description": "The normative iEEG reference: the HUP Interictal iEEG Atlas (HUP_atlas_final.mat, Pennsieve "
+                   "Discover 179) or a reference feature table built from your own normative cohort "
+                   "(ieeg-normative scripts/build_reference.py).",
+    "position": {"x": 40, "y": 40 + ROW * 4},
+}
+
+
+def interictal():
+    steps = [
+        PREP(1, 2),
+        step("spikes", "ieeg-spikes", 2, 0, ["prep"], [("prep", "ieeg", "ieeg")]),
+        step("hfo", "ieeg-hfo", 2, 1, ["prep"], [("prep", "ieeg", "ieeg")]),
+        step("bandpower", "ieeg-bandpower", 2, 3, ["prep"], [("prep", "ieeg", "ieeg")]),
+        step("normative", "ieeg-normative", 3, 3, ["bandpower", "prep", "reference"],
+             [("bandpower", "bandpower", "features"), ("prep", "ieeg", "ieeg"), ("reference", "", "reference")]),
+        step("report", "ieeg-report", 4, 2, ["prep", "spikes", "hfo", "bandpower", "normative"],
+             [("prep", "ieeg", "ieeg"), ("prep", "qc", "qc"), ("spikes", "spikes", "spikes"), ("hfo", "hfo", "hfo"),
+              ("bandpower", "bandpower", "bandpower"), ("normative", "abnormality", "abnormality")],
+             {"REPORT_TITLE": "Interictal Biomarker Mapping"}),
+    ]
+    for s in steps:
+        s["inputs"] = [{k: v for k, v in l.items() if v != ""} for l in s.get("inputs", [])]
+    return {
+        "name": "Interictal Biomarker Mapping (iEEG)",
+        "summary": "Interictal iEEG: spikes, HFOs, spectral and connectivity features vs a normative atlas, report.",
+        "description": (
+            "Maps interictal biomarkers of epileptogenic tissue in intracranial EEG (SEEG/ECoG). Prepares the "
+            "recordings (bipolar montage, notch, bad channels; BIDS-iEEG, EDF, BrainVision or MEF3), detects "
+            "interictal epileptiform discharges (Janca et al. 2015) and high-frequency oscillations (ripples and "
+            "fast ripples when the sampling rate allows), computes spectral and coherence features and scores them "
+            "against a normative reference such as the HUP Interictal iEEG Atlas (Bernabei et al. 2022), and writes "
+            "a per-channel report, with AUCs against SOZ and resected channels when they are labelled. Research use only."),
+        "inputs": [IEEG_INPUT, REFERENCE_INPUT],
+        "processors": steps,
+        "outputs": [
+            output("report_out", "Report", "report", "report", "derivatives/interictal/report", 5, 1),
+            output("tables_out", "Tables", "report", "tables", "derivatives/interictal/tables", 5, 2),
+            output("abnormality_out", "Normative abnormality", "normative", "abnormality",
+                   "derivatives/interictal/abnormality", 5, 3),
+            output("spikes_out", "Spikes", "spikes", "spikes", "derivatives/interictal/spikes", 5, 4),
+        ],
+    }
+
+
 def main():
     out = ROOT / "workflow"
     out.mkdir(exist_ok=True)
-    for name, wf in (("seizure-onset-localisation", seizure_onset()),):
+    for name, wf in (("seizure-onset-localisation", seizure_onset()), ("interictal-biomarker-mapping", interictal())):
         assert len(wf["summary"].encode()) <= 100, (name, len(wf["summary"].encode()))
         (out / f"{name}.json").write_text(json.dumps(wf, indent=2) + "\n")
         print(f"wrote workflow/{name}.json ({len(wf['processors'])} steps)")

@@ -1,0 +1,270 @@
+{
+  "name": "Interictal Biomarker Mapping (iEEG)",
+  "summary": "Interictal iEEG: spikes, HFOs, spectral and connectivity features vs a normative atlas, report.",
+  "description": "Maps interictal biomarkers of epileptogenic tissue in intracranial EEG (SEEG/ECoG). Prepares the recordings (bipolar montage, notch, bad channels; BIDS-iEEG, EDF, BrainVision or MEF3), detects interictal epileptiform discharges (Janca et al. 2015) and high-frequency oscillations (ripples and fast ripples when the sampling rate allows), computes spectral and coherence features and scores them against a normative reference such as the HUP Interictal iEEG Atlas (Bernabei et al. 2022), and writes a per-channel report, with AUCs against SOZ and resected channels when they are labelled. Research use only.",
+  "inputs": [
+    {
+      "id": "ieeg",
+      "name": "iEEG recordings",
+      "description": "Intracranial EEG (SEEG/ECoG): a BIDS-iEEG dataset or EDF, BrainVision, FIF or MEF3 recordings, plus an optional labels.csv (SOZ, resected, expert onset channels and times).",
+      "position": {
+        "x": 40,
+        "y": 300
+      }
+    },
+    {
+      "id": "reference",
+      "name": "Normative reference",
+      "description": "The normative iEEG reference: the HUP Interictal iEEG Atlas (HUP_atlas_final.mat, Pennsieve Discover 179) or a reference feature table built from your own normative cohort (ieeg-normative scripts/build_reference.py).",
+      "position": {
+        "x": 40,
+        "y": 560
+      }
+    }
+  ],
+  "processors": [
+    {
+      "id": "prep",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-ieeg-prep",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "ieeg"
+      ],
+      "position": {
+        "x": 300,
+        "y": 300
+      },
+      "cpu": "2048",
+      "memory": "4096",
+      "inputs": []
+    },
+    {
+      "id": "spikes",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-ieeg-spikes",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "prep"
+      ],
+      "position": {
+        "x": 560,
+        "y": 40
+      },
+      "cpu": "2048",
+      "memory": "4096",
+      "inputs": [
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        }
+      ]
+    },
+    {
+      "id": "hfo",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-ieeg-hfo",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "prep"
+      ],
+      "position": {
+        "x": 560,
+        "y": 170
+      },
+      "cpu": "2048",
+      "memory": "4096",
+      "inputs": [
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        }
+      ]
+    },
+    {
+      "id": "bandpower",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-ieeg-bandpower",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "prep"
+      ],
+      "position": {
+        "x": 560,
+        "y": 430
+      },
+      "cpu": "1024",
+      "memory": "2048",
+      "inputs": [
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        }
+      ]
+    },
+    {
+      "id": "normative",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-ieeg-normative",
+      "tag": "v0.1.0",
+      "dependsOn": [
+        "bandpower",
+        "prep",
+        "reference"
+      ],
+      "position": {
+        "x": 820,
+        "y": 430
+      },
+      "cpu": "1024",
+      "memory": "2048",
+      "inputs": [
+        {
+          "from": "bandpower",
+          "output": "bandpower",
+          "input": "features"
+        },
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        },
+        {
+          "from": "reference",
+          "input": "reference"
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "type": "processor",
+      "sourceUrl": "https://github.com/pennsieve-apps/processor-ieeg-report",
+      "tag": "v0.1.1",
+      "dependsOn": [
+        "prep",
+        "spikes",
+        "hfo",
+        "bandpower",
+        "normative"
+      ],
+      "position": {
+        "x": 1080,
+        "y": 300
+      },
+      "cpu": "1024",
+      "memory": "2048",
+      "inputs": [
+        {
+          "from": "prep",
+          "output": "ieeg",
+          "input": "ieeg"
+        },
+        {
+          "from": "prep",
+          "output": "qc",
+          "input": "qc"
+        },
+        {
+          "from": "spikes",
+          "output": "spikes",
+          "input": "spikes"
+        },
+        {
+          "from": "hfo",
+          "output": "hfo",
+          "input": "hfo"
+        },
+        {
+          "from": "bandpower",
+          "output": "bandpower",
+          "input": "bandpower"
+        },
+        {
+          "from": "normative",
+          "output": "abnormality",
+          "input": "abnormality"
+        }
+      ],
+      "defaultParams": {
+        "REPORT_TITLE": "Interictal Biomarker Mapping"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "id": "report_out",
+      "name": "Report",
+      "from": {
+        "step": "report",
+        "output": "report"
+      },
+      "position": {
+        "x": 1340,
+        "y": 170
+      },
+      "default": {
+        "targetType": "Pennsieve Dataset",
+        "params": {
+          "TARGET_FOLDER": "derivatives/interictal/report"
+        }
+      }
+    },
+    {
+      "id": "tables_out",
+      "name": "Tables",
+      "from": {
+        "step": "report",
+        "output": "tables"
+      },
+      "position": {
+        "x": 1340,
+        "y": 300
+      },
+      "default": {
+        "targetType": "Pennsieve Dataset",
+        "params": {
+          "TARGET_FOLDER": "derivatives/interictal/tables"
+        }
+      }
+    },
+    {
+      "id": "abnormality_out",
+      "name": "Normative abnormality",
+      "from": {
+        "step": "normative",
+        "output": "abnormality"
+      },
+      "position": {
+        "x": 1340,
+        "y": 430
+      },
+      "default": {
+        "targetType": "Pennsieve Dataset",
+        "params": {
+          "TARGET_FOLDER": "derivatives/interictal/abnormality"
+        }
+      }
+    },
+    {
+      "id": "spikes_out",
+      "name": "Spikes",
+      "from": {
+        "step": "spikes",
+        "output": "spikes"
+      },
+      "position": {
+        "x": 1340,
+        "y": 560
+      },
+      "default": {
+        "targetType": "Pennsieve Dataset",
+        "params": {
+          "TARGET_FOLDER": "derivatives/interictal/spikes"
+        }
+      }
+    }
+  ]
+}
