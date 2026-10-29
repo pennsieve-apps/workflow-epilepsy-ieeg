@@ -124,13 +124,31 @@ Each step also writes its parameters into `provenance.json`.
 | Step | Files |
 |---|---|
 | ieeg-spikes | `spikes.csv` (recording_id, channel, time_s, amplitude_uv, detector), `spike_rates.csv` (recording_id, channel, n_spikes, minutes, rate_per_min, detector) |
-| ieeg-bandpower | `bandpower.csv` (recording_id, channel, band, abs_power, rel_power) with bands delta 1–4, theta 4–8, alpha 8–13, beta 13–30, gamma 30–80 Hz (Bernabei 2022), plus `broadband` |
+| ieeg-bandpower | `bandpower.csv` (recording_id, channel, band, abs_power, rel_power, norm_median) with bands delta 1–4, theta 4–8, alpha 8–13, beta 13–30, gamma 30–80 Hz (Bernabei 2022), plus `broadband`; `features.csv` (the shared feature shape, below: `relpow_<band>`, `normpow_<band>`, `logpow_<band>`, `coh_<band>`); `coherence.csv` (recording_id, channel_a, channel_b, band, coherence) when `COHERENCE=true` (the default) |
 | ieeg-hfo | `hfo.csv` (recording_id, channel, start_s, end_s, band ripple/fast_ripple, detector), `hfo_rates.csv`; writes an empty table with `skipped` status when sfreq < 1000 Hz |
-| ieeg-normative | `abnormality.csv` (recording_id, channel, band, z, abs_z, region, n_reference) and `channel_abnormality.csv` (recording_id, channel, max_abs_z, region, n_reference) |
+| ieeg-normative | `abnormality.csv` (recording_id, channel, feature, z, abs_z, region, n_reference, family), `channel_abnormality.csv` (recording_id, channel, max_abs_z, max_band, region, n_reference, then per-family summaries: spectral_max_abs_z, spectral_mean_abs_z, spectral_max_feature, coherence_max_abs_z, coherence_mean_abs_z, connectivity_max, connectivity_mean, connectivity_source, combined, other_max_abs_z), `edge_abnormality.csv` (recording_id, channel_a, channel_b, band, coherence, z, abs_z, n_reference), `validation.csv` (scope, label, score, n_positive, n_negative, n_unscored, auc) when labels are known |
 | seizure-dynasd | `dynasd/seizure_onsets.csv` (recording_id, onset_s, method) and `dynasd/channel_onsets.csv` (recording_id, channel, onset_s, recruited, score, method) |
 | seizure-ei | `ei/ei.csv` (recording_id, channel, ei, detection_s, ratio_peak) |
 | seizure-fragility | `fragility/fragility.csv` (recording_id, channel, fragility_pre, fragility_post, rank) |
 | seizure-consensus | `onset_zone.csv` (recording_id, channel, score per method, rank, in_onset_zone), `scores.csv` (recording_id, method, metric, value) against the expert labels when known |
+
+### Per-channel features: `features.csv`, the shared shape
+
+Any app that computes one number per channel can also write it as `features.csv`:
+`recording_id, channel, feature, value`, one row per channel and feature, `value` empty when
+not defined. Feature names are lowercase `<kind>_<qualifier>` (letters, digits, `-`, `_`), and
+the prefix says the family: `relpow_`, `normpow_`, `logpow_` (spectral), `coh_` (coherence
+strength: a channel's mean band coherence with every other channel). ieeg-normative z-scores
+every feature it finds in its `features` input against the same feature in its reference;
+features with an unknown prefix are scored too and summarised as `other`. Pairwise values go in
+a separate `coherence.csv`-like table (recording_id, channel_a, channel_b, band, value), not in
+`features.csv`. Spike and HFO rates could be written the same way later (e.g.
+`spikerate_<detector>`); ieeg-spikes and ieeg-hfo do not do so yet.
+
+ieeg-normative's `reference` accepts the same shape: a folder with `reference_channels.csv`
+(recording_id, channel, x, y, z, space, roi, patient, normative, spike_24h), `features.csv` and
+optionally `coherence.csv` (processor-ieeg-normative `scripts/build_reference.py` writes it from
+a normative cohort run through ieeg-prep and ieeg-bandpower), or the HUP atlas `.mat`.
 
 ## Ports
 
@@ -138,7 +156,7 @@ Each step also writes its parameters into `provenance.json`.
 |---|---|---|
 | ieeg-prep | `ieeg` (anything readable; subfolder) | `ieeg` (the derivative), `qc` (qc.csv, plots) |
 | ieeg-spikes / ieeg-bandpower / ieeg-hfo | `ieeg` | the step's tables (one output) |
-| ieeg-normative | `features` (bandpower tables), `reference` (the normative atlas), `ieeg` (for labels/coordinates) | `abnormality` |
+| ieeg-normative | `features` (`features.csv` + `coherence.csv` + `provenance.json` from ieeg-bandpower, or any `features.csv`), `reference` (a reference feature table, or the HUP atlas `.mat`), `ieeg` (for labels/coordinates/roi) | `abnormality` |
 | seizure-dynasd | `ieeg` | `onsets` (content under `dynasd/`) |
 | seizure-ei / seizure-fragility | `ieeg`, `onsets` (optional; their own onset estimate otherwise) | the step's table (under `ei/` / `fragility/`) |
 | seizure-consensus | `ieeg`, `methods` (fan-in of the method outputs: `dynasd/`, `ei/`, `fragility/` side by side) | `onset-zone` |
