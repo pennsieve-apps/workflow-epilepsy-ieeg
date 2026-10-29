@@ -53,8 +53,22 @@ def release_tag(app: str) -> str:
     return tag
 
 
+# Fargate accepts only some cpu/memory pairs (MiB): the least memory each cpu allows. An app
+# that asks for less (e.g. 4 vCPU / 4 GiB) has its step rounded up, or the task is refused.
+FARGATE_MIN_MEMORY = {256: 512, 512: 1024, 1024: 2048, 2048: 4096, 4096: 8192, 8192: 16384, 16384: 32768}
+
+
+def fargate_memory(cpu: str, mem: str) -> str:
+    floor = FARGATE_MIN_MEMORY.get(int(cpu), 0)
+    if int(mem) < floor:
+        print(f"note: {cpu} cpu / {mem} MiB is not a Fargate size; using {floor} MiB")
+        return str(floor)
+    return mem
+
+
 def step(id_, app, col, row, depends, links=(), params=None):
     cpu, mem = runtime(app)
+    mem = fargate_memory(cpu, mem)
     tag = release_tag(app)
     node = {
         "id": id_,

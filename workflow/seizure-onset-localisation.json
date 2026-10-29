@@ -93,7 +93,7 @@
         "y": 430
       },
       "cpu": "4096",
-      "memory": "4096",
+      "memory": "8192",
       "inputs": [
         {
           "from": "prep",
@@ -164,7 +164,7 @@
         "y": 300
       },
       "cpu": "1024",
-      "memory": "1024",
+      "memory": "2048",
       "inputs": [
         {
           "from": "prep",
