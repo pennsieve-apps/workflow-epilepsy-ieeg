@@ -1,0 +1,6 @@
+data/*/
+data/*.log
+*.edf
+*.mat
+*.fif
+__pycache__/
