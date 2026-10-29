@@ -21,7 +21,9 @@ generic `labels.csv` that ieeg-prep reads (`docs/conventions.md`, "Labels on inp
 `data/seizures/labels.csv` so that `data/seizures/` (BIDS dataset + labels) is one input.
 
 Per seizure: a recording-level row with `onset_s` = the consensus unequivocal electrographic
-onset (`ueo_time_consensus`, median of 3–5 clinicians) in seconds from the clip start, and one
+onset (`ueo_time_consensus`, median of 3–5 clinicians) in seconds from the clip start,
+`stim_induced` (`true`/`false`, from the `stim` column) and `lvfa` (`yes`/`no` → `true`/`false`),
+which ieeg-prep copies into `recordings.csv`; and one
 row per channel of `ueo_consensus` (`onset=true`) and `sec_consensus` (`spread=true`;
 `spread=false` for onset channels not in it). Python 3 standard library only.
 

@@ -15,10 +15,16 @@ glue, and every step also runs on data that never came from the demo datasets.
   `$INPUT_DIR`), by finding files by their names anywhere under `$INPUT_DIR` (follow symlinks;
   INPUT_DIR entries are symlinks).
 - Several links may feed one input port (fan-in); their entries land side by side and two
-  entries with the same name fail the run. An app that may run more than once in a workflow
-  writes under a folder named by a `LABEL` parameter.
+  entries with the same name fail the run (compute node data transfer, `handleMerge`). So an
+  app whose output can be one of several links into one port writes everything, tables and
+  `provenance.json`, under a folder named after itself (or after its `LABEL` parameter when it
+  has one and it is set): seizure-dynasd → `OUTPUT_DIR/dynasd/`, seizure-ei → `OUTPUT_DIR/ei/`,
+  seizure-fragility → `OUTPUT_DIR/fragility/`, all three linked into seizure-consensus's (and
+  ieeg-report's) `methods` port. An app that may run more than once in a workflow writes under
+  a folder named by a `LABEL` parameter. Readers therefore find tables by file name anywhere
+  under a port, never at a fixed path.
 - Port names: lowercase letters, digits and `-` (no underscores).
-- Each output folder gets a `provenance.json`: app name + version (from `VERSION`), tool
+- Each output folder (the method folder above, when there is one) gets a `provenance.json`: app name + version (from `VERSION`), tool
   versions, parameters, inputs seen (relative paths), timings, per-recording status.
 - A recording that fails is logged and skipped; the step fails only when every recording
   failed or no input was found. Non-zero exit code on failure.
@@ -27,6 +33,13 @@ glue, and every step also runs on data that never came from the demo datasets.
   128-channel, 1024 Hz recording is ~1.9 GB as float32: chunk per channel or per window when
   a method allows it.
 - Reproducible: every random step takes `SEED` (default `42`).
+- Parallel workers (`THREADS`, `0` = automatic): count the CPUs the container is given, not
+  the host's. Resolve `0` from the cgroup CPU quota (v2 `cpu.max`, v1 `cpu.cfs_quota_us` /
+  `cpu.cfs_period_us`), else the CPU affinity, else the CPU count, and cap it so that an
+  estimated per-worker footprint fits the cgroup memory limit (`memory.max`). Log the number and
+  why, and keep both in `provenance.json`. (`os.cpu_count()` in a 4-vCPU container on a 15-CPU
+  host is 15; 15 workers under 3 GB were OOM-killed without a word.) Python apps share
+  `processor/resources.py`, the R app `R/resources.R`.
 
 ## The data between steps: a BIDS-iEEG derivative
 
@@ -57,7 +70,8 @@ root), `sfreq, n_channels, n_good, duration_s, montage` (`bipolar` | `car` | `as
 `kind` (`ictal` | `interictal` | `unknown`), `onset_s` (expert/clinical seizure onset in
 seconds from the recording start, empty if unknown), `baseline_start_s, baseline_end_s`
 (interval treated as pre-ictal baseline; empty if none), `source_format` (`bids-edf`, `edf`,
-`brainvision`, `mef3`, `fif`, ...).
+`brainvision`, `mef3`, `fif`, ...). Then any extra recording-level columns of `labels.csv` (see
+"Labels on input"), e.g. `stim_induced`, `lvfa` (`true` | `false`; empty = unknown).
 
 ### `_channels.tsv`
 
@@ -85,9 +99,14 @@ here (they go to the step's own tables).
 columns named as above, `_events.tsv` `seizure` rows) and from an optional `labels.csv`
 anywhere in its input with columns `subject, recording_id` (empty = every recording of the
 subject), `channel` (a contact name), and any of `soz, resected, onset, spread`, plus
-recording-level rows (`channel` empty) carrying `onset_s`. The demo fetch script writes the
-expert consensus of the Multi-Expert Seizure Annotation dataset in this form; other datasets
-can do the same.
+recording-level rows (`channel` empty) carrying `onset_s`. Any other column filled on a
+recording-level row is carried into `recordings.csv` as a column of the same name (lower-cased,
+value as written; empty for recordings without one; a name ieeg-prep computes itself, such as
+`kind`, is ignored with a warning). The seizure flags use this: `stim_induced`
+(stimulation-induced vs spontaneous) and `lvfa` (low-voltage fast activity at onset), both
+`true` | `false`, which seizure-consensus splits its scores by. The demo script writes the
+expert consensus of the Multi-Expert Seizure Annotation dataset in this form, flags included;
+other datasets can do the same.
 
 ### Precision
 
@@ -108,9 +127,9 @@ Each step also writes its parameters into `provenance.json`.
 | ieeg-bandpower | `bandpower.csv` (recording_id, channel, band, abs_power, rel_power) with bands delta 1–4, theta 4–8, alpha 8–13, beta 13–30, gamma 30–80 Hz (Bernabei 2022), plus `broadband` |
 | ieeg-hfo | `hfo.csv` (recording_id, channel, start_s, end_s, band ripple/fast_ripple, detector), `hfo_rates.csv`; writes an empty table with `skipped` status when sfreq < 1000 Hz |
 | ieeg-normative | `abnormality.csv` (recording_id, channel, band, z, abs_z, region, n_reference) and `channel_abnormality.csv` (recording_id, channel, max_abs_z, region, n_reference) |
-| seizure-dynasd | `seizure_onsets.csv` (recording_id, onset_s, method) and `channel_onsets.csv` (recording_id, channel, onset_s, recruited, score, method) |
-| seizure-ei | `ei.csv` (recording_id, channel, ei, detection_s, ratio_peak) |
-| seizure-fragility | `fragility.csv` (recording_id, channel, fragility_pre, fragility_post, rank) |
+| seizure-dynasd | `dynasd/seizure_onsets.csv` (recording_id, onset_s, method) and `dynasd/channel_onsets.csv` (recording_id, channel, onset_s, recruited, score, method) |
+| seizure-ei | `ei/ei.csv` (recording_id, channel, ei, detection_s, ratio_peak) |
+| seizure-fragility | `fragility/fragility.csv` (recording_id, channel, fragility_pre, fragility_post, rank) |
 | seizure-consensus | `onset_zone.csv` (recording_id, channel, score per method, rank, in_onset_zone), `scores.csv` (recording_id, method, metric, value) against the expert labels when known |
 
 ## Ports
@@ -120,10 +139,18 @@ Each step also writes its parameters into `provenance.json`.
 | ieeg-prep | `ieeg` (anything readable; subfolder) | `ieeg` (the derivative), `qc` (qc.csv, plots) |
 | ieeg-spikes / ieeg-bandpower / ieeg-hfo | `ieeg` | the step's tables (one output) |
 | ieeg-normative | `features` (bandpower tables), `reference` (the normative atlas), `ieeg` (for labels/coordinates) | `abnormality` |
-| seizure-dynasd | `ieeg` | `onsets` |
-| seizure-ei / seizure-fragility | `ieeg`, `onsets` (optional; their own onset estimate otherwise) | the step's table |
-| seizure-consensus | `ieeg`, `methods` (fan-in of the method outputs) | `onset-zone` |
+| seizure-dynasd | `ieeg` | `onsets` (content under `dynasd/`) |
+| seizure-ei / seizure-fragility | `ieeg`, `onsets` (optional; their own onset estimate otherwise) | the step's table (under `ei/` / `fragility/`) |
+| seizure-consensus | `ieeg`, `methods` (fan-in of the method outputs: `dynasd/`, `ei/`, `fragility/` side by side) | `onset-zone` |
 | ieeg-report | `ieeg`, `qc`, and any of `spikes, bandpower, hfo, abnormality, onsets, methods, onset-zone` (all optional, subfolder) | `report` (index.html + figures), `tables` |
+
+Fan-in ports are seizure-consensus `methods` and ieeg-report `methods`; only the three method
+apps link into them, so only they write under a folder named after themselves. ieeg-spikes,
+ieeg-hfo, ieeg-bandpower and ieeg-normative each feed a port of their own (ieeg-report
+`spikes`, `hfo`, `bandpower`, `abnormality`; ieeg-normative `features`), one link per port, and
+write at the root of `OUTPUT_DIR` (ieeg-spikes and ieeg-hfo under `<LABEL>/` when `LABEL` is
+set, for a second run with other settings). A new port that takes several of their outputs
+would need the same folder rule.
 
 ## Demo data
 

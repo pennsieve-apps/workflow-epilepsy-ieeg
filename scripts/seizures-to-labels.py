@@ -7,7 +7,9 @@ ieeg-prep reads (docs/conventions.md, "Labels on input").
 
 Per seizure:
   - a recording-level row: onset_s = the consensus unequivocal electrographic onset
-    (ueo_time_consensus, the median of the 3-5 clinicians) in seconds from the clip start;
+    (ueo_time_consensus, the median of the 3-5 clinicians) in seconds from the clip start,
+    stim_induced (true/false, from the `stim` column) and lvfa (low-voltage fast activity at
+    onset, yes/no -> true/false); ieeg-prep copies these two into recordings.csv;
   - one row per channel in ueo_consensus (onset=true) or sec_consensus (spread=true).
 
 Clip timing. A clip task-<ictal|stim><N> covers [approximate_onset - 120 s, end + 120 s] in
@@ -49,6 +51,11 @@ def parse_list(s: str):
     except (ValueError, SyntaxError):
         return []
     return v if isinstance(v, list) else [v]
+
+
+def flag(value: str, true: tuple[str, ...], false: tuple[str, ...]) -> str:
+    v = (value or "").strip().lower()
+    return "true" if v.startswith(true) else ("false" if v.startswith(false) else "")
 
 
 def main() -> int:
@@ -124,15 +131,19 @@ def main() -> int:
                 chk = f" events.tsv onset {ev_on:g} s; duration {dur:.3f} s vs end-approx+240 {expect:.3f} s"
         report.append(f"{stem}: onset_s {onset_s:8.3f} (UEO {onset_s - 120:+7.3f} s from the approximate onset; "
                       f"clinicians span {spread:.2f} s){chk}")
+        lvfa = flag(r.get("lvfa", ""), ("yes", "true"), ("no", "false"))
+        if not lvfa:
+            problems.append(f"{stem}: lvfa {r.get('lvfa')!r} is neither yes nor no; left empty")
         out.append({"subject": patient, "recording_id": stem, "channel": "", "soz": "", "resected": "",
-                    "onset": "", "spread": "", "onset_s": f"{onset_s:.4f}"})
+                    "onset": "", "spread": "", "onset_s": f"{onset_s:.4f}",
+                    "stim_induced": "true" if stim else "false", "lvfa": lvfa})
         onset_ch = [str(c) for c in parse_list(r.get("ueo_consensus", ""))]
         sec_ch = [str(c) for c in parse_list(r.get("sec_consensus", ""))]
         for ch in dict.fromkeys(onset_ch + sec_ch):
             out.append({"subject": patient, "recording_id": stem, "channel": ch, "soz": "", "resected": "",
                         "onset": "true" if ch in onset_ch else "",
                         "spread": "true" if ch in sec_ch else ("" if not sec_ch else "false"),
-                        "onset_s": ""})
+                        "onset_s": "", "stim_induced": "", "lvfa": ""})
         if not onset_ch:
             problems.append(f"{stem}: empty ueo_consensus; onset channels unknown")
         if not sec_ch:
@@ -141,7 +152,7 @@ def main() -> int:
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=["subject", "recording_id", "channel", "soz", "resected", "onset", "spread",
-                                           "onset_s"], lineterminator="\n")
+                                           "onset_s", "stim_induced", "lvfa"], lineterminator="\n")
         w.writeheader()
         w.writerows(out)
     for line in report:
